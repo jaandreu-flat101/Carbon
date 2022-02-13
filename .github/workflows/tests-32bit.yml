@@ -1,0 +1,48 @@
+name: Arch
+
+on: [ pull_request, push ]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    container: shivammathur/node:latest-${{ matrix.arch }}
+
+    strategy:
+      matrix:
+        arch: ['amd64', 'i386']
+        php: ['7.1.8', '7.4', '8.1']
+
+    name: ${{ matrix.arch }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install locales
+        run: |
+          sudo apt-get update || apt --fix-broken install || echo 'Apt failure ignored'
+          sudo apt-get install tzdata locales -y && sudo locale-gen fr_FR.UTF-8 sr_ME.UTF-8 ar_AE.UTF-8 zh_TW.UTF-8 zh_CN.UTF-8 yo_NG.UTF-8 en_US.UTF-8 || echo 'Apt failure ignored'
+
+      - name: Install PHP
+        run: |
+          # Update spc (See https://github.com/shivammathur/spc for options)
+          spc -U
+
+          # Install PHP
+          spc --php-version "${{ matrix.php }}" \
+              --extensions "json, msgpack" \
+              --ini-values "post_max_size=256M, short_open_tag=On" \
+              --coverage "none" \
+              --tools "phpunit"
+
+      - name: Install dependencies
+        run: |
+          composer remove --no-update phpmd/phpmd friendsofphp/php-cs-fixer --no-interaction;
+          if [[ "${{ matrix.laravel }}" != 'true' ]]; then
+            composer remove --no-update kylekatarnls/multi-tester --no-interaction;
+          fi;
+          ${{ matrix.php >= 8.1 && 'composer require --no-update phpunit/phpunit:^8.5.14 --no-interaction;' || '' }}
+          composer update --prefer-dist --no-progress --prefer-${{ matrix.setup || 'stable' }} ${{ matrix.php >= 8.1 && '--ignore-platform-req=php' || '' }} ${{ matrix.classmap-authoritative && '--classmap-authoritative' || '' }};
+
+      - name: Run test suite
+        run: php -d memory_limit=-1 -d zend.enable_gc=0 vendor/phpunit/phpunit/phpunit
